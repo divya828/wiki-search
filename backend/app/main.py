@@ -2,7 +2,9 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
+from fastapi.responses import StreamingResponse
 
+from app.answer import close_anthropic_client, stream_answer
 from app.chunker import chunk_article
 from app.db import close_pool, init_pool
 from app.embedder import embed, warm as warm_embedder
@@ -21,9 +23,12 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         try:
-            await close_wiki_client()
+            await close_anthropic_client()
         finally:
-            await close_pool()
+            try:
+                await close_wiki_client()
+            finally:
+                await close_pool()
 
 
 app = FastAPI(title="Wiki Search", lifespan=lifespan)
@@ -92,3 +97,14 @@ async def debug_retrieve(q: str):
         }
         for c in chunks
     ]
+
+
+@app.get("/api/_debug/answer")
+async def debug_answer(q: str):
+    chunks = await retrieve(q)
+
+    async def gen():
+        async for token in stream_answer(q, chunks):
+            yield token
+
+    return StreamingResponse(gen(), media_type="text/plain")
