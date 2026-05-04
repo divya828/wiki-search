@@ -1,0 +1,28 @@
+:root {
+  font-family: system-ui, sans-serif;
+  background: #f7f7f8;
+  color: #1c1c1e;
+}
+* { box-sizing: border-box; }
+body { margin: 0; }
+.app { max-width: 760px; margin: 0 auto; padding: 24px; }
+header h1 { margin: 0 0 16px; }
+form { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+form input[type="text"], form input:not([type]) {
+  flex: 1; padding: 10px 12px; border: 1px solid #ccc; border-radius: 8px; font-size: 16px;
+}
+.mode-toggle { display: flex; gap: 12px; }
+button { padding: 10px 16px; border: 0; border-radius: 8px; background: #111; color: #fff; cursor: pointer; }
+button:hover { background: #333; }
+main { margin-top: 24px; display: flex; flex-direction: column; gap: 16px; }
+.summary-card { background: #fff; border-radius: 12px; padding: 16px; box-shadow: 0 1px 3px rgba(0,0,0,0.05); }
+.summary-card img { float: right; max-width: 120px; margin-left: 16px; border-radius: 8px; }
+.search-results { list-style: none; padding: 0; margin: 0; }
+.search-results li { padding: 12px; background: #fff; border-radius: 8px; margin-bottom: 8px; }
+.search-results button { background: transparent; color: #0a58ca; padding: 0; font-size: 16px; font-weight: 600; }
+.answer { background: #fff; border-radius: 12px; padding: 16px; }
+.answer-status { font-size: 12px; color: #666; text-transform: uppercase; margin-bottom: 8px; }
+.answer-text { white-space: pre-wrap; line-height: 1.55; }
+.answer-sources { margin-top: 12px; font-size: 13px; color: #666; }
+.answer.error { color: #b00020; }
+.empty { color: #666; }
