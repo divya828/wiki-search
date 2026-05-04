@@ -5,6 +5,7 @@ from fastapi import FastAPI
 
 from app.chunker import chunk_article
 from app.db import close_pool, init_pool
+from app.embedder import embed, warm as warm_embedder
 from app.router import classify
 from app.wiki_client import close_wiki_client, get_wiki_client
 
@@ -13,6 +14,7 @@ from app.wiki_client import close_wiki_client, get_wiki_client
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     await init_pool()
     get_wiki_client()
+    warm_embedder()
     try:
         yield
     finally:
@@ -60,3 +62,10 @@ async def debug_chunks(title: str):
         ),
         "sections": list({c.section for c in chunks}),
     }
+
+
+@app.post("/api/_debug/embed")
+async def debug_embed(body: dict):
+    text: str = body["text"]
+    vectors = await embed([text])
+    return {"dim": len(vectors[0]), "first5": vectors[0][:5]}
