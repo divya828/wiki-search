@@ -7,6 +7,7 @@ from app.chunker import chunk_article
 from app.db import close_pool, init_pool
 from app.embedder import embed, warm as warm_embedder
 from app.indexer import index_article, is_indexed
+from app.retriever import retrieve
 from app.router import classify
 from app.wiki_client import close_wiki_client, get_wiki_client
 
@@ -77,3 +78,17 @@ async def debug_index(title: str):
     canonical = title.replace("_", " ")
     inserted = await index_article(canonical, get_wiki_client())
     return {"inserted": inserted, "indexed": await is_indexed(canonical)}
+
+
+@app.get("/api/_debug/retrieve")
+async def debug_retrieve(q: str):
+    chunks = await retrieve(q)
+    return [
+        {
+            "article": c.article_title,
+            "section": c.section,
+            "score": c.score,
+            "preview": c.chunk_text[:200],
+        }
+        for c in chunks
+    ]
