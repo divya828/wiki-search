@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.db import close_pool, init_pool
+from app.router import classify
 from app.wiki_client import close_wiki_client, get_wiki_client
 
 
@@ -36,3 +37,9 @@ async def debug_summary(title: str):
 @app.get("/api/_debug/search")
 async def debug_search(q: str):
     return await get_wiki_client().search_articles(q, limit=5)
+
+
+@app.get("/api/_debug/route")
+async def debug_route(q: str):
+    result = await classify(q, get_wiki_client())
+    return {"kind": result.kind, "resolved_title": result.resolved_title}
