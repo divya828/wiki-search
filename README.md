@@ -4,7 +4,7 @@ Wikipedia search & Q&A tool. Scrapes on demand, embeds locally, retrieves with h
 
 ## Local development
 
-1. `python3.11 -m venv .venv && source .venv/bin/activate`
+1. `python3 -m venv .venv && source .venv/bin/activate` (Python 3.11+)
 2. `pip install -r backend/requirements.txt`
 3. `cp .env.example .env` and fill in values
 4. `cd backend && uvicorn app.main:app --reload`
