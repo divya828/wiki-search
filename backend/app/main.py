@@ -3,6 +3,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
+from app.chunker import chunk_article
 from app.db import close_pool, init_pool
 from app.router import classify
 from app.wiki_client import close_wiki_client, get_wiki_client
@@ -43,3 +44,19 @@ async def debug_search(q: str):
 async def debug_route(q: str):
     result = await classify(q, get_wiki_client())
     return {"kind": result.kind, "resolved_title": result.resolved_title}
+
+
+@app.get("/api/_debug/chunks/{title}")
+async def debug_chunks(title: str):
+    html = await get_wiki_client().get_full_article(title)
+    if html is None:
+        return {"error": "not found"}
+    chunks = chunk_article(html)
+    return {
+        "count": len(chunks),
+        "first": (
+            {"section": chunks[0].section, "text": chunks[0].text[:300]}
+            if chunks else None
+        ),
+        "sections": list({c.section for c in chunks}),
+    }
