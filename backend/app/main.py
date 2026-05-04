@@ -1,17 +1,41 @@
+import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from typing import Literal
 
-from fastapi import FastAPI
-from fastapi.responses import StreamingResponse
+from fastapi import BackgroundTasks, FastAPI, WebSocket, WebSocketDisconnect
+from pydantic import BaseModel
 
 from app.answer import close_anthropic_client, stream_answer
-from app.chunker import chunk_article
 from app.db import close_pool, init_pool
-from app.embedder import embed, warm as warm_embedder
+from app.embedder import warm as warm_embedder
 from app.indexer import index_article, is_indexed
+from app.jobs import (
+    Job,
+    close as close_job,
+    create_job,
+    get_job,
+    push_error,
+    push_status,
+    push_token,
+    run_websocket,
+)
 from app.retriever import retrieve
 from app.router import classify
 from app.wiki_client import close_wiki_client, get_wiki_client
+
+
+# In-process locks per article title — coalesces concurrent indexing requests
+# for the same article so we don't double-fetch / double-insert.
+_index_locks: dict[str, asyncio.Lock] = {}
+
+
+def _index_lock(article_title: str) -> asyncio.Lock:
+    lock = _index_locks.get(article_title)
+    if lock is None:
+        lock = asyncio.Lock()
+        _index_locks[article_title] = lock
+    return lock
 
 
 @asynccontextmanager
@@ -39,72 +63,89 @@ async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-@app.get("/api/_debug/summary/{title}")
-async def debug_summary(title: str):
-    return await get_wiki_client().get_summary(title)
+class SearchRequest(BaseModel):
+    query: str
+    mode: Literal["ask", "search"] = "ask"
 
 
-@app.get("/api/_debug/search")
-async def debug_search(q: str):
-    return await get_wiki_client().search_articles(q, limit=5)
+@app.post("/api/search")
+async def search(req: SearchRequest, background: BackgroundTasks) -> dict:
+    client = get_wiki_client()
 
+    if req.mode == "search":
+        hits = await client.search_articles(req.query, limit=10)
+        return {
+            "fallback": {"type": "search_results", "hits": hits},
+            "job_id": None,
+        }
 
-@app.get("/api/_debug/route")
-async def debug_route(q: str):
-    result = await classify(q, get_wiki_client())
-    return {"kind": result.kind, "resolved_title": result.resolved_title}
+    # Ask mode
+    route = await classify(req.query, client)
 
+    if route.kind == "broad":
+        hits = await client.search_articles(req.query, limit=10)
+        return {
+            "fallback": {"type": "search_results", "hits": hits},
+            "job_id": None,
+        }
 
-@app.get("/api/_debug/chunks/{title}")
-async def debug_chunks(title: str):
-    html = await get_wiki_client().get_full_article(title)
-    if html is None:
-        return {"error": "not found"}
-    chunks = chunk_article(html)
+    title = route.resolved_title
+    assert title is not None
+    summary = await client.get_summary(title)
+    if summary is None or summary["type"] == "missing":
+        return {
+            "fallback": {"type": "no_results", "message": "No Wikipedia article found"},
+            "job_id": None,
+        }
+
+    job = create_job(query=req.query, article_title=title)
+    background.add_task(_run_ask_job, job)
+
     return {
-        "count": len(chunks),
-        "first": (
-            {"section": chunks[0].section, "text": chunks[0].text[:300]}
-            if chunks else None
-        ),
-        "sections": list({c.section for c in chunks}),
+        "fallback": {
+            "type": "summary",
+            "title": summary["title"],
+            "extract": summary["extract"],
+            "thumbnail": summary["thumbnail"],
+        },
+        "job_id": job.id,
     }
 
 
-@app.post("/api/_debug/embed")
-async def debug_embed(body: dict):
-    text: str = body["text"]
-    vectors = await embed([text])
-    return {"dim": len(vectors[0]), "first5": vectors[0][:5]}
+async def _run_ask_job(job: Job) -> None:
+    client = get_wiki_client()
+    title = job.article_title
+    assert title is not None
+    try:
+        # Coalesce concurrent indexing for the same title
+        async with _index_lock(title):
+            if not await is_indexed(title):
+                await push_status(job, "indexing", article=title)
+                await index_article(title, client)
+        await push_status(job, "indexed", article=title)
+
+        await push_status(job, "answering")
+        chunks = await retrieve(job.query)
+        sources = sorted({c.article_title for c in chunks})
+        async for text in stream_answer(job.query, chunks):
+            await push_token(job, text)
+        await push_status(job, "done", sources=sources)
+    except Exception as e:  # noqa: BLE001
+        await push_error(job, str(e))
+    finally:
+        await close_job(job)
 
 
-@app.post("/api/_debug/index/{title}")
-async def debug_index(title: str):
-    canonical = title.replace("_", " ")
-    inserted = await index_article(canonical, get_wiki_client())
-    return {"inserted": inserted, "indexed": await is_indexed(canonical)}
-
-
-@app.get("/api/_debug/retrieve")
-async def debug_retrieve(q: str):
-    chunks = await retrieve(q)
-    return [
-        {
-            "article": c.article_title,
-            "section": c.section,
-            "score": c.score,
-            "preview": c.chunk_text[:200],
-        }
-        for c in chunks
-    ]
-
-
-@app.get("/api/_debug/answer")
-async def debug_answer(q: str):
-    chunks = await retrieve(q)
-
-    async def gen():
-        async for token in stream_answer(q, chunks):
-            yield token
-
-    return StreamingResponse(gen(), media_type="text/plain")
+@app.websocket("/api/jobs/{job_id}/stream")
+async def jobs_stream(websocket: WebSocket, job_id: str) -> None:
+    job = get_job(job_id)
+    if job is None:
+        await websocket.accept()
+        await websocket.send_json({"type": "error", "message": "job not found"})
+        await websocket.close()
+        return
+    try:
+        await run_websocket(job, websocket)
+    except WebSocketDisconnect:
+        # Client closed first; producer will keep running so cache fills.
+        return
