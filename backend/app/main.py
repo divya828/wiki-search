@@ -74,5 +74,6 @@ async def debug_embed(body: dict):
 
 @app.post("/api/_debug/index/{title}")
 async def debug_index(title: str):
-    inserted = await index_article(title, get_wiki_client())
-    return {"inserted": inserted, "indexed": await is_indexed(title)}
+    canonical = title.replace("_", " ")
+    inserted = await index_article(canonical, get_wiki_client())
+    return {"inserted": inserted, "indexed": await is_indexed(canonical)}

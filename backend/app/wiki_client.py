@@ -24,6 +24,7 @@ class WikiClient:
     def __init__(self) -> None:
         self._client = httpx.AsyncClient(
             timeout=10.0,
+            follow_redirects=True,
             headers={"User-Agent": USER_AGENT, "Accept": "application/json"},
         )
 
