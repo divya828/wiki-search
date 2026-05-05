@@ -1,9 +1,11 @@
 import asyncio
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Literal
 
 from fastapi import BackgroundTasks, FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
 from app.answer import close_anthropic_client, stream_answer
@@ -150,10 +152,6 @@ async def jobs_stream(websocket: WebSocket, job_id: str) -> None:
         # Client closed first; producer will keep running so cache fills.
         return
 
-
-from pathlib import Path
-
-from fastapi.staticfiles import StaticFiles
 
 WEB_DIST = Path(__file__).resolve().parent.parent.parent / "web" / "dist"
 if WEB_DIST.exists():
