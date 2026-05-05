@@ -149,3 +149,12 @@ async def jobs_stream(websocket: WebSocket, job_id: str) -> None:
     except WebSocketDisconnect:
         # Client closed first; producer will keep running so cache fills.
         return
+
+
+from pathlib import Path
+
+from fastapi.staticfiles import StaticFiles
+
+WEB_DIST = Path(__file__).resolve().parent.parent.parent / "web" / "dist"
+if WEB_DIST.exists():
+    app.mount("/", StaticFiles(directory=WEB_DIST, html=True), name="static")
